@@ -1,0 +1,1 @@
+# Entrypoint of program (semua run di sini)
