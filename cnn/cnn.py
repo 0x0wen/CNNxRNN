@@ -38,6 +38,23 @@ class Conv2D(Layer):
         self.input_depth = input_shape_depth
         if name: self.name = name
 
+    def _im2col(self, input_data, filter_h, filter_w, stride):
+        N, C, H, W = input_data.shape
+        out_h = (H - filter_h) // stride + 1
+        out_w = (W - filter_w) // stride + 1
+
+        img = input_data
+        col = np.zeros((N, C, filter_h, filter_w, out_h, out_w))
+
+        for y in range(filter_h):
+            y_max = y + stride * out_h
+            for x in range(filter_w):
+                x_max = x + stride * out_w
+                col[:, :, y, x, :, :] = img[:, :, y:y_max:stride, x:x_max:stride]
+
+        col = col.transpose(0, 4, 5, 1, 2, 3).reshape(N * out_h * out_w, -1)
+        return col
+
     def forward(self, input_data):
         self.input_data_cache = input_data.astype(np.float32)
         if self.input_data_cache.ndim != 4:
@@ -77,23 +94,14 @@ class Conv2D(Layer):
         _, _, padded_height, padded_width = input_padded.shape
         output_height = (padded_height - self.filter_height) // self.stride + 1
         output_width = (padded_width - self.filter_width) // self.stride + 1
-        
-        output_feature_map = np.zeros((batch_size, self.num_filters, output_height, output_width), dtype=np.float32)
 
-        for b in range(batch_size):
-            for f in range(self.num_filters):
-                current_filter_w = self.weights[f, :, :, :]
-                current_b = self.bias[f]
-                for r_out in range(output_height):
-                    r_start = r_out * self.stride
-                    r_end = r_start + self.filter_height
-                    for c_out in range(output_width):
-                        c_start = c_out * self.stride
-                        c_end = c_start + self.filter_width
-                        input_patch = input_padded[b, :, r_start:r_end, c_start:c_end]
-                        output_feature_map[b, f, r_out, c_out] = np.sum(input_patch * current_filter_w) + current_b
-        
-        self.output_data_cache = output_feature_map
+        col = self._im2col(input_padded, self.filter_height, self.filter_width, self.stride)
+        col_W = self.weights.reshape(self.num_filters, -1).T
+
+        out = np.dot(col, col_W) + self.bias
+        out = out.reshape(batch_size, output_height, output_width, -1).transpose(0, 3, 1, 2)
+
+        self.output_data_cache = out
         return self.output_data_cache
 
 class ReLU(Layer):
@@ -132,8 +140,25 @@ class PoolingBase(Layer):
             raise ValueError(f"Padding tidak valid untuk {self.name}. Pilih 'same' atau 'valid'.")
         return output_height, output_width, pad_h_before, pad_h_after, pad_w_before, pad_w_after
 
-
 class MaxPooling2D(PoolingBase):
+    def _pool2d(self, input_data):
+        N, C, H, W = input_data.shape
+        out_h = (H - self.pool_height) // self.stride_val + 1
+        out_w = (W - self.pool_width) // self.stride_val + 1
+        
+        stride_h = self.stride_val
+        stride_w = self.stride_val
+        
+        windows = np.lib.stride_tricks.as_strided(
+            input_data,
+            shape=(N, C, out_h, out_w, self.pool_height, self.pool_width),
+            strides=(input_data.strides[0], input_data.strides[1],
+                    stride_h * input_data.strides[2], stride_w * input_data.strides[3],
+                    input_data.strides[2], input_data.strides[3])
+        )
+        
+        return np.max(windows, axis=(4, 5))
+
     def forward(self, input_data):
         self.input_data_cache = input_data.astype(np.float32)
         if self.input_data_cache.ndim != 4:
@@ -144,33 +169,35 @@ class MaxPooling2D(PoolingBase):
         output_height, output_width, pad_h_before, pad_h_after, pad_w_before, pad_w_after = \
             self._calculate_padding_and_output_dims(input_height, input_width)
 
-        if self.padding_mode == 'same' and (pad_h_before > 0 or pad_w_before > 0 or pad_h_after > 0 or pad_w_after > 0) :
+        if self.padding_mode == 'same' and (pad_h_before > 0 or pad_w_before > 0 or pad_h_after > 0 or pad_w_after > 0):
             input_padded = np.pad(self.input_data_cache,
                                   ((0,0), (0,0), (pad_h_before, pad_h_after), (pad_w_before, pad_w_after)),
-                                  mode='constant', constant_values=-np.inf) 
-        else: 
+                                  mode='constant', constant_values=-np.inf)
+        else:
             input_padded = self.input_data_cache
             
-        output_feature_map = np.zeros((batch_size, input_depth, output_height, output_width), dtype=np.float32)
-
-        for b in range(batch_size):
-            for d in range(input_depth):
-                for r_out in range(output_height):
-                    r_start = r_out * self.stride_val
-                    r_end = r_start + self.pool_height
-                    for c_out in range(output_width):
-                        c_start = c_out * self.stride_val
-                        c_end = c_start + self.pool_width
-                        input_patch = input_padded[b, d, r_start:r_end, c_start:c_end]
-                        if input_patch.size == 0: 
-                             output_feature_map[b, d, r_out, c_out] = -np.inf 
-                        else:
-                            output_feature_map[b, d, r_out, c_out] = np.max(input_patch)
-        
-        self.output_data_cache = output_feature_map
+        self.output_data_cache = self._pool2d(input_padded)
         return self.output_data_cache
 
 class AveragePooling2D(PoolingBase):
+    def _pool2d(self, input_data):
+        N, C, H, W = input_data.shape
+        out_h = (H - self.pool_height) // self.stride_val + 1
+        out_w = (W - self.pool_width) // self.stride_val + 1
+        
+        stride_h = self.stride_val
+        stride_w = self.stride_val
+        
+        windows = np.lib.stride_tricks.as_strided(
+            input_data,
+            shape=(N, C, out_h, out_w, self.pool_height, self.pool_width),
+            strides=(input_data.strides[0], input_data.strides[1],
+                    stride_h * input_data.strides[2], stride_w * input_data.strides[3],
+                    input_data.strides[2], input_data.strides[3])
+        )
+        
+        return np.mean(windows, axis=(4, 5))
+
     def forward(self, input_data):
         self.input_data_cache = input_data.astype(np.float32)
         if self.input_data_cache.ndim != 4:
@@ -181,30 +208,14 @@ class AveragePooling2D(PoolingBase):
         output_height, output_width, pad_h_before, pad_h_after, pad_w_before, pad_w_after = \
             self._calculate_padding_and_output_dims(input_height, input_width)
         
-        if self.padding_mode == 'same' and (pad_h_before > 0 or pad_w_before > 0 or pad_h_after > 0 or pad_w_after > 0) :
+        if self.padding_mode == 'same' and (pad_h_before > 0 or pad_w_before > 0 or pad_h_after > 0 or pad_w_after > 0):
             input_padded = np.pad(self.input_data_cache,
                                   ((0,0), (0,0), (pad_h_before, pad_h_after), (pad_w_before, pad_w_after)),
-                                  mode='constant', constant_values=0) 
-        else: 
+                                  mode='constant', constant_values=0)
+        else:
             input_padded = self.input_data_cache
 
-        output_feature_map = np.zeros((batch_size, input_depth, output_height, output_width), dtype=np.float32)
-
-        for b in range(batch_size):
-            for d in range(input_depth):
-                for r_out in range(output_height):
-                    r_start = r_out * self.stride_val
-                    r_end = r_start + self.pool_height
-                    for c_out in range(output_width):
-                        c_start = c_out * self.stride_val
-                        c_end = c_start + self.pool_width
-                        input_patch = input_padded[b, d, r_start:r_end, c_start:c_end]
-                        if input_patch.size == 0: 
-                            output_feature_map[b, d, r_out, c_out] = 0 
-                        else:
-                            output_feature_map[b, d, r_out, c_out] = np.mean(input_patch)
-        
-        self.output_data_cache = output_feature_map
+        self.output_data_cache = self._pool2d(input_padded)
         return self.output_data_cache
 
 class Flatten(Layer):

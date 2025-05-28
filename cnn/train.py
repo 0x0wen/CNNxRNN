@@ -14,13 +14,12 @@ import time
 NUM_CLASSES = 10
 INPUT_SHAPE = (32, 32, 3)
 BATCH_SIZE = 64
-EPOCHS_MAIN_MODEL = 15 
-EPOCHS_EXPERIMENT = 5  
+EPOCHS = 2
 VAL_SPLIT_RATIO = 0.2 
 
 PLOTS_DIR = "plots_cnn"
 WEIGHTS_DIR = "weights_cnn"
-MAIN_MODEL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "cnn_main_model.weights.h5")
+BEST_MODEL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "cnn_best_model.weights.h5")
 
 if not os.path.exists(PLOTS_DIR):
     os.makedirs(PLOTS_DIR)
@@ -130,7 +129,7 @@ def run_experiment(config, x_train_data, y_train_data, x_val_data, y_val_data, x
     history = model.fit(
         x_train_data, y_train_data,
         batch_size=BATCH_SIZE,
-        epochs=config.get('epochs', EPOCHS_EXPERIMENT), 
+        epochs=EPOCHS,
         validation_data=(x_val_data, y_val_data),
         verbose=1 
     )
@@ -147,59 +146,96 @@ if __name__ == "__main__":
     (x_train, y_train), (x_val, y_val), (x_test, y_test) = load_and_preprocess_cifar10()
     
     results_summary = []
+    best_f1_score = 0
+    best_model = None
 
-    print("\n--- Melatih Model CNN (Bobot akan disimpan) ---")
-    main_model_config = {
-        "num_conv_layers": 2,
-        "filters_list": [32, 64],
-        "kernel_sizes_list": [(3,3), (3,3)],
-        "pooling_type": 'max',
-        "use_global_pooling": False,
-        "epochs": EPOCHS_MAIN_MODEL 
-    }
-    main_model_experiment_results = run_experiment(main_model_config, x_train, y_train, x_val, y_val, x_test, y_test, "MainModel")
-    main_keras_model_instance = main_model_experiment_results["model_instance"]
-    
-    print(f"\nMenyimpan bobot untuk model: {main_model_experiment_results['model_name']}")
-    main_keras_model_instance.save_weights(MAIN_MODEL_WEIGHTS_PATH)
-    print(f"Bobot model CNN disimpan di: {MAIN_MODEL_WEIGHTS_PATH}")
-
-    results_summary.append({k: v for k, v in main_model_experiment_results.items() if k != "model_instance"})
-
-    run_additional_experiments = False 
-    if run_additional_experiments:
-        print("\n\n===== MEMULAI EKSPERIMEN=====")
-        base_filters_per_layer = 32
-        base_kernel_size = (3,3)
+    print("\n===== Eksperimen 1: Pengaruh Jumlah Layer Konvolusi =====")
+    for num_layers in [1, 2, 3]:
+        config = {
+            "num_conv_layers": num_layers,
+            "filters_list": [32 * (2**i) for i in range(num_layers)],
+            "kernel_sizes_list": [(3,3)] * num_layers,
+            "pooling_type": 'max',
+            "use_global_pooling": False
+        }
+        exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp1_NumLayers")
+        results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
         
-        num_layer_variations = [1, 3]
-        for num_layers in num_layer_variations:
-            config = {
-                "num_conv_layers": num_layers,
-                "filters_list": [base_filters_per_layer * (2**i) for i in range(num_layers)], 
-                "kernel_sizes_list": [base_kernel_size] * num_layers,
-                "pooling_type": 'max', "use_global_pooling": False, "epochs": EPOCHS_EXPERIMENT
-            }
-            exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp1_NumLayers")
-            results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
+        if exp_results["f1_score"] > best_f1_score:
+            best_f1_score = exp_results["f1_score"]
+            best_model = exp_results["model_instance"]
 
-        filters_variations = [[16, 32], [64, 128]]
-        for filters in filters_variations:
-            config = {
-                "num_conv_layers": 2, "filters_list": filters,
-                "kernel_sizes_list": [base_kernel_size] * 2,
-                "pooling_type": 'max', "use_global_pooling": False, "epochs": EPOCHS_EXPERIMENT
-            }
-            exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp2_NumFilters")
-            results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
+    print("\n===== Eksperimen 2: Pengaruh Jumlah Filter =====")
+    filter_variations = [
+        [16, 32],
+        [32, 64],
+        [64, 128]
+    ]
+    
+    for filters in filter_variations:
+        config = {
+            "num_conv_layers": 2,
+            "filters_list": filters,
+            "kernel_sizes_list": [(3,3), (3,3)],
+            "pooling_type": 'max',
+            "use_global_pooling": False
+        }
+        exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp2_NumFilters")
+        results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
+        
+        if exp_results["f1_score"] > best_f1_score:
+            best_f1_score = exp_results["f1_score"]
+            best_model = exp_results["model_instance"]
+
+    print("\n===== Eksperimen 3: Pengaruh Ukuran Filter =====")
+    kernel_variations = [
+        [(3,3), (3,3)],
+        [(5,5), (5,5)],
+        [(7,7), (7,7)]
+    ]
+    
+    for kernels in kernel_variations:
+        config = {
+            "num_conv_layers": 2,
+            "filters_list": [32, 64],
+            "kernel_sizes_list": kernels,
+            "pooling_type": 'max',
+            "use_global_pooling": False
+        }
+        exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp3_KernelSize")
+        results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
+        
+        if exp_results["f1_score"] > best_f1_score:
+            best_f1_score = exp_results["f1_score"]
+            best_model = exp_results["model_instance"]
+
+    print("\n===== Eksperimen 4: Pengaruh Jenis Pooling =====")
+    for pooling_type in ['max', 'average']:
+        config = {
+            "num_conv_layers": 2,
+            "filters_list": [32, 64],
+            "kernel_sizes_list": [(3,3), (3,3)],
+            "pooling_type": pooling_type,
+            "use_global_pooling": False
+        }
+        exp_results = run_experiment(config, x_train, y_train, x_val, y_val, x_test, y_test, "Exp4_PoolingType")
+        results_summary.append({k: v for k, v in exp_results.items() if k != "model_instance"})
+        
+        if exp_results["f1_score"] > best_f1_score:
+            best_f1_score = exp_results["f1_score"]
+            best_model = exp_results["model_instance"]
 
     if results_summary:
         print("\n\n===== RINGKASAN HASIL EKSPERIMEN (Macro F1-Score & Accuracy) =====")
         print(f"{'Model Name':<80} {'F1-Score':<10} {'Accuracy':<10} {'Train Time (s)':<15}")
         print("-" * 115)
         for res in results_summary:
-            print(f"{res['model_name']:<80} {res['f1_score']:.<5} {res['accuracy']:.<5} {res['training_time']:.<8}")
+            print(f"{res['model_name']:<80} {res['f1_score']:.4f} {res['accuracy']:.4f} {res['training_time']:.2f}")
         print("-" * 115)
 
-    print("\nPelatihan dan semua eksperimen (jika dijalankan) selesai.")
-    print(f"Bobot model utama yang akan digunakan untuk implementasi 'from scratch' telah disimpan di: {MAIN_MODEL_WEIGHTS_PATH}")
+    if best_model is not None:
+        print(f"\nMenyimpan model terbaik dengan F1-Score: {best_f1_score:.4f}")
+        best_model.save_weights(BEST_MODEL_WEIGHTS_PATH)
+        print(f"Model terbaik disimpan di: {BEST_MODEL_WEIGHTS_PATH}")
+
+    print("\nSemua eksperimen selesai.")

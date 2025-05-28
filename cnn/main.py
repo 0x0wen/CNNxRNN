@@ -12,7 +12,7 @@ import time
 from cnn import CNNModel, Conv2D, ReLU, MaxPooling2D, AveragePooling2D, Flatten, Dense, SoftmaxActivation
 from train import create_keras_cnn_model, load_and_preprocess_cifar10 
 
-MAIN_MODEL_WEIGHTS_PATH = os.path.join("weights_cnn", "cnn_main_model.weights.h5")
+BEST_MODEL_WEIGHTS_PATH = os.path.join("weights_cnn", "cnn_best_model.weights.h5")
 
 MAIN_MODEL_ARCHITECTURE_CONFIG = {
     "num_conv_layers": 2,
@@ -20,7 +20,7 @@ MAIN_MODEL_ARCHITECTURE_CONFIG = {
     "kernel_sizes_list": [(3,3), (3,3)],
     "pooling_type": 'max', 
     "use_global_pooling": False, 
-    "model_name_suffix": "MainModelForInference" 
+    "model_name_suffix": "BestModelForInference" 
 }
 
 INPUT_SHAPE_CHANNELS_LAST = (32, 32, 3)
@@ -70,17 +70,17 @@ if __name__ == "__main__":
     (_, _), (_, _), (x_test_keras, y_test_keras) = load_and_preprocess_cifar10()
     print(f"\nData uji dimuat: x_test_keras shape: {x_test_keras.shape}, y_test_keras shape: {y_test_keras.shape}")
 
-    print("\n--- Membuat Ulang Model Keras, Build, dan Memuat Bobot ---")
-    if not os.path.exists(MAIN_MODEL_WEIGHTS_PATH):
-        print(f"ERROR: File bobot Keras tidak ditemukan di {MAIN_MODEL_WEIGHTS_PATH}")
-        print("Pastikan Anda telah menjalankan train.py dan menyimpan bobot model utama.")
+    print("\n--- Membuat Ulang Model Keras dan Memuat Bobot Model Terbaik ---")
+    if not os.path.exists(BEST_MODEL_WEIGHTS_PATH):
+        print(f"ERROR: File bobot model terbaik tidak ditemukan di {BEST_MODEL_WEIGHTS_PATH}")
+        print("Pastikan Anda telah menjalankan train.py untuk melakukan eksperimen dan menyimpan bobot model terbaik.")
         exit()
 
     keras_model_reference = create_keras_cnn_model(**MAIN_MODEL_ARCHITECTURE_CONFIG)
     keras_model_reference.build(input_shape=(None, *INPUT_SHAPE_CHANNELS_LAST))
     print("Model Keras di-build secara eksplisit.")
-    keras_model_reference.load_weights(MAIN_MODEL_WEIGHTS_PATH)
-    print("Model Keras dan bobot berhasil dimuat sebagai referensi.")
+    keras_model_reference.load_weights(BEST_MODEL_WEIGHTS_PATH)
+    print("Model Keras dan bobot terbaik berhasil dimuat sebagai referensi.")
     keras_model_reference.summary()
     
     print("\n--- Menginisialisasi Model CNN From Scratch dengan Input Shapes dari Keras ---")
@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
     print("\n--- Melakukan Inferensi dan Perbandingan ---")
     
-    num_test_samples = 1000 
+    num_test_samples = 10000 
     x_test_sample_keras = x_test_keras[:num_test_samples].astype(np.float32) 
     y_test_sample_keras = y_test_keras[:num_test_samples] 
 
@@ -171,10 +171,20 @@ if __name__ == "__main__":
     print("\nMemprediksi dengan model From Scratch...") 
     start_time_scratch = time.time() 
     
-    y_pred_proba_scratch = cnn_model_scratch.forward(x_test_sample_scratch) 
+    batch_size = 10000
+    num_batches = (num_test_samples + batch_size - 1) // batch_size
+    y_pred_proba_scratch = []
+    
+    for i in range(num_batches):
+        start_idx = i * batch_size
+        end_idx = min((i + 1) * batch_size, num_test_samples)
+        batch_output = cnn_model_scratch.forward(x_test_sample_scratch[start_idx:end_idx])
+        y_pred_proba_scratch.append(batch_output)
+    
+    y_pred_proba_scratch = np.vstack(y_pred_proba_scratch)
     end_time_scratch = time.time() 
     y_pred_scratch = np.argmax(y_pred_proba_scratch, axis=1) 
-    print(f"Waktu inferensi From Scratch (untuk {num_test_samples} sampel): {end_time_scratch - start_time_scratch:.4f} detik") 
+    print(f"Waktu inferensi From Scratch (untuk {num_test_samples} sampel): {end_time_scratch - start_time_scratch:.4f} detik")
 
     print("\n--- Perbandingan Hasil ---") 
     comparison_tolerance = 1e-4
