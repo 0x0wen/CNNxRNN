@@ -14,7 +14,7 @@ import time
 NUM_CLASSES = 10
 INPUT_SHAPE = (32, 32, 3)
 BATCH_SIZE = 64
-EPOCHS = 2
+EPOCHS = 10
 VAL_SPLIT_RATIO = 0.2 
 
 PLOTS_DIR = "plots_cnn"
@@ -108,13 +108,17 @@ def evaluate_and_get_f1(model, x_test_data, y_test_data, model_name, experiment_
     return f1, accuracy
 
 def run_experiment(config, x_train_data, y_train_data, x_val_data, y_val_data, x_test_data, y_test_data, experiment_name_prefix):
-    model_name_detail = (f"L{config['num_conv_layers']}_"
-                         f"F{'x'.join(map(str,config['filters_list']))}_"
-                         f"K{'x'.join([''.join(map(str,k)) for k in config['kernel_sizes_list']])}_"
-                         f"P{config['pooling_type']}_G{config['use_global_pooling']}")
-    full_model_name = f"{experiment_name_prefix}_{model_name_detail}"
+    if experiment_name_prefix == "Exp1_NumLayers":
+        model_name_detail = f"Experiment1_NumberLayer_{config['num_conv_layers']}"
+    elif experiment_name_prefix == "Exp2_NumFilters":
+        model_name_detail = f"Experiment2_Filters_{'x'.join(map(str,config['filters_list']))}"
+    elif experiment_name_prefix == "Exp3_KernelSize":
+        kernel_size = config['kernel_sizes_list'][0][0]  
+        model_name_detail = f"Experiment3_KernelSize_{kernel_size}x{kernel_size}"
+    elif experiment_name_prefix == "Exp4_PoolingType":
+        model_name_detail = f"Experiment4_PoolingType_{config['pooling_type']}"
     
-    print(f"\n===== MENJALANKAN: {full_model_name} =====")
+    print(f"\n===== MENJALANKAN: {model_name_detail} =====")
     
     start_time = time.time()
     model = create_keras_cnn_model(
@@ -135,12 +139,12 @@ def run_experiment(config, x_train_data, y_train_data, x_val_data, y_val_data, x
     )
     
     training_time = time.time() - start_time
-    print(f"Waktu pelatihan ({full_model_name}): {training_time:.2f} detik")
+    print(f"Waktu pelatihan ({model_name_detail}): {training_time:.2f} detik")
 
     plot_training_history(history, model_name_detail, experiment_name_prefix)
-    f1, acc = evaluate_and_get_f1(model, x_test_data, y_test_data, full_model_name, experiment_name_prefix)
+    f1, acc = evaluate_and_get_f1(model, x_test_data, y_test_data, model_name_detail, experiment_name_prefix)
     
-    return {"model_name": full_model_name, "f1_score": f1, "accuracy": acc, "training_time": training_time, "model_instance": model}
+    return {"model_name": model_name_detail, "f1_score": f1, "accuracy": acc, "training_time": training_time, "model_instance": model}
 
 if __name__ == "__main__":
     (x_train, y_train), (x_val, y_val), (x_test, y_test) = load_and_preprocess_cifar10()
@@ -149,11 +153,12 @@ if __name__ == "__main__":
     best_f1_score = 0
     best_model = None
 
-    print("\n===== Eksperimen 1: Pengaruh Jumlah Layer Konvolusi =====")
+    print("\n===== Eksperimen 1: Analisis Pengaruh Jumlah Layer Konvolusi =====")
+    print("Variasi: 1 layer, 2 layer, dan 3 layer konvolusi")
     for num_layers in [1, 2, 3]:
         config = {
             "num_conv_layers": num_layers,
-            "filters_list": [32 * (2**i) for i in range(num_layers)],
+            "filters_list": [32 * (2**i) for i in range(num_layers)], 
             "kernel_sizes_list": [(3,3)] * num_layers,
             "pooling_type": 'max',
             "use_global_pooling": False
@@ -165,11 +170,12 @@ if __name__ == "__main__":
             best_f1_score = exp_results["f1_score"]
             best_model = exp_results["model_instance"]
 
-    print("\n===== Eksperimen 2: Pengaruh Jumlah Filter =====")
+    print("\n===== Eksperimen 2: Analisis Pengaruh Jumlah Filter per Layer =====")
+    print("Variasi: [16,32], [32,64], dan [64,128] filter")
     filter_variations = [
-        [16, 32],
-        [32, 64],
-        [64, 128]
+        [16, 32], 
+        [32, 64],   
+        [64, 128]   
     ]
     
     for filters in filter_variations:
@@ -187,7 +193,8 @@ if __name__ == "__main__":
             best_f1_score = exp_results["f1_score"]
             best_model = exp_results["model_instance"]
 
-    print("\n===== Eksperimen 3: Pengaruh Ukuran Filter =====")
+    print("\n===== Eksperimen 3: Analisis Pengaruh Ukuran Filter =====")
+    print("Variasi: 3x3, 5x5, dan 7x7 kernel")
     kernel_variations = [
         [(3,3), (3,3)],
         [(5,5), (5,5)],
@@ -209,7 +216,8 @@ if __name__ == "__main__":
             best_f1_score = exp_results["f1_score"]
             best_model = exp_results["model_instance"]
 
-    print("\n===== Eksperimen 4: Pengaruh Jenis Pooling =====")
+    print("\n===== Eksperimen 4: Analisis Pengaruh Jenis Pooling =====")
+    print("Variasi: Max Pooling vs Average Pooling")
     for pooling_type in ['max', 'average']:
         config = {
             "num_conv_layers": 2,
@@ -226,16 +234,29 @@ if __name__ == "__main__":
             best_model = exp_results["model_instance"]
 
     if results_summary:
-        print("\n\n===== RINGKASAN HASIL EKSPERIMEN (Macro F1-Score & Accuracy) =====")
-        print(f"{'Model Name':<80} {'F1-Score':<10} {'Accuracy':<10} {'Train Time (s)':<15}")
+        print("\n\n===== RINGKASAN HASIL EKSPERIMEN =====")
+        print("\nEksperimen 1: Pengaruh Jumlah Layer Konvolusi")
         print("-" * 115)
-        for res in results_summary:
-            print(f"{res['model_name']:<80} {res['f1_score']:.4f} {res['accuracy']:.4f} {res['training_time']:.2f}")
+        for res in [r for r in results_summary if "NumberLayer" in r["model_name"]]:
+            print(f"{res['model_name']:<80} F1-Score: {res['f1_score']:.4f} Accuracy: {res['accuracy']:.4f} Time: {res['training_time']:.2f}s")
+        
+        print("\nEksperimen 2: Pengaruh Jumlah Filter")
+        print("-" * 115)
+        for res in [r for r in results_summary if "Filters" in r["model_name"]]:
+            print(f"{res['model_name']:<80} F1-Score: {res['f1_score']:.4f} Accuracy: {res['accuracy']:.4f} Time: {res['training_time']:.2f}s")
+        
+        print("\nEksperimen 3: Pengaruh Ukuran Filter")
+        print("-" * 115)
+        for res in [r for r in results_summary if "KernelSize" in r["model_name"]]:
+            print(f"{res['model_name']:<80} F1-Score: {res['f1_score']:.4f} Accuracy: {res['accuracy']:.4f} Time: {res['training_time']:.2f}s")
+        
+        print("\nEksperimen 4: Pengaruh Jenis Pooling")
+        print("-" * 115)
+        for res in [r for r in results_summary if "PoolingType" in r["model_name"]]:
+            print(f"{res['model_name']:<80} F1-Score: {res['f1_score']:.4f} Accuracy: {res['accuracy']:.4f} Time: {res['training_time']:.2f}s")
         print("-" * 115)
 
     if best_model is not None:
         print(f"\nMenyimpan model terbaik dengan F1-Score: {best_f1_score:.4f}")
         best_model.save_weights(BEST_MODEL_WEIGHTS_PATH)
         print(f"Model terbaik disimpan di: {BEST_MODEL_WEIGHTS_PATH}")
-
-    print("\nSemua eksperimen selesai.")
