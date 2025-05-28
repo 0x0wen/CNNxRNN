@@ -319,7 +319,7 @@ class CNNModel:
         scratch_layer_idx = 0
         keras_layer_with_weights_idx = 0
     
-        print("\nMemulai pemetaan bobot Keras ke model scratch...")
+        print("\nMemulai mapping bobot Keras ke model scratch...")
         while scratch_layer_idx < len(self.layers) and keras_layer_with_weights_idx < len(keras_layers_with_weights):
             current_scratch_layer = self.layers[scratch_layer_idx]
             
@@ -361,7 +361,7 @@ class CNNModel:
         if remaining_scratch_layers_needing_weights:
             print(f"Peringatan (load_keras_weights): Masih ada scratch layers (Conv2D/Dense) yang belum menerima bobot: {remaining_scratch_layers_needing_weights}")
 
-        print("\nPemetaan bobot Keras selesai.")
+        print("\nMapping bobot Keras selesai.")
 
 
     def summary(self):
@@ -393,3 +393,105 @@ class CNNModel:
         print("=" * 80)
         print(f"Total params (from scratch model, loaded): {int(total_params)}")
         print("-" * 80)
+
+def get_keras_layer_output_shape(model, layer_name_to_find):
+    found_layer_instance = None
+    for layer_in_model in model.layers:
+        if layer_in_model.name == layer_name_to_find:
+            found_layer_instance = layer_in_model
+            break
+    
+    if found_layer_instance is None:
+        print(f"ERROR: Layer Keras dengan nama '{layer_name_to_find}' tidak ditemukan.")
+        print("Nama layer yang tersedia di model Keras:")
+        for l_obj in model.layers:
+            print(f"  - {l_obj.name} (Type: {l_obj.__class__.__name__})")
+        raise ValueError(f"Layer '{layer_name_to_find}' tidak ditemukan di model Keras.")
+
+    if hasattr(found_layer_instance, 'output_shape') and found_layer_instance.output_shape is not None:
+        return found_layer_instance.output_shape
+    else: 
+        if hasattr(found_layer_instance, 'output') and hasattr(found_layer_instance.output, 'shape'):
+            shape_val = found_layer_instance.output.shape
+            if hasattr(shape_val, 'as_list'): 
+                return tuple(shape_val.as_list())
+            elif isinstance(shape_val, tuple): 
+                return shape_val
+        raise AttributeError(f"Layer {found_layer_instance.name} tidak memiliki 'output_shape' atau 'output.shape' yang valid.")
+
+def create_scratch_cnn_model(config, input_shape_channels_first, keras_model_reference):
+    NUM_CLASSES = 10
+    DENSE_LAYER_UNITS = 128
+
+    scratch_layers = []
+    
+    input_depth_conv_1 = input_shape_channels_first[0]
+    
+    scratch_layers.append(Conv2D(num_filters=config['filters_list'][0], 
+                               filter_size=config['kernel_sizes_list'][0],
+                               input_shape_depth=input_depth_conv_1, 
+                               padding='same', 
+                               name="scratch_conv_1"))
+    scratch_layers.append(ReLU(name="scratch_relu_1"))
+    
+    if config['pooling_type'] == 'max':
+        scratch_layers.append(MaxPooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_1"))
+    else:
+        scratch_layers.append(AveragePooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_1"))
+
+    output_shape_keras_pool_1 = get_keras_layer_output_shape(keras_model_reference, "pool_1")
+    input_depth_conv_2 = output_shape_keras_pool_1[-1]
+    
+    scratch_layers.append(Conv2D(num_filters=config['filters_list'][1], 
+                               filter_size=config['kernel_sizes_list'][1],
+                               input_shape_depth=input_depth_conv_2, 
+                               padding='same', 
+                               name="scratch_conv_2"))
+    scratch_layers.append(ReLU(name="scratch_relu_2"))
+    
+    if config['pooling_type'] == 'max':
+        scratch_layers.append(MaxPooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_2"))
+    else:
+        scratch_layers.append(AveragePooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_2"))
+
+    if config['num_conv_layers'] >= 3:
+        output_shape_keras_pool_2 = get_keras_layer_output_shape(keras_model_reference, "pool_2")
+        input_depth_conv_3 = output_shape_keras_pool_2[-1]
+        
+        scratch_layers.append(Conv2D(num_filters=config['filters_list'][2], 
+                                   filter_size=config['kernel_sizes_list'][2],
+                                   input_shape_depth=input_depth_conv_3, 
+                                   padding='same', 
+                                   name="scratch_conv_3"))
+        scratch_layers.append(ReLU(name="scratch_relu_3"))
+        
+        if config['pooling_type'] == 'max':
+            scratch_layers.append(MaxPooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_3"))
+        else:
+            scratch_layers.append(AveragePooling2D(pool_size=(2,2), padding='valid', name="scratch_pool_3"))
+
+    if config["use_global_pooling"]:
+        raise NotImplementedError("GlobalAveragePooling2D from scratch belum diimplementasikan")
+    else:
+        scratch_layers.append(Flatten(name="scratch_flatten_1"))
+
+    if config["use_global_pooling"]:
+        output_shape_keras_pooling_final = get_keras_layer_output_shape(keras_model_reference, "global_avg_pool_1")
+    else:
+        output_shape_keras_pooling_final = get_keras_layer_output_shape(keras_model_reference, "flatten_1")
+    input_size_dense_1 = output_shape_keras_pooling_final[-1]
+
+    scratch_layers.append(Dense(output_size=DENSE_LAYER_UNITS, 
+                              input_size=input_size_dense_1, 
+                              name="scratch_dense_1"))
+    scratch_layers.append(ReLU(name="scratch_relu_dense"))
+
+    output_shape_keras_dense_1 = get_keras_layer_output_shape(keras_model_reference, "dense_1")
+    input_size_output_dense = output_shape_keras_dense_1[-1]
+    
+    scratch_layers.append(Dense(output_size=NUM_CLASSES, 
+                              input_size=input_size_output_dense, 
+                              name="scratch_output_dense_1"))
+    scratch_layers.append(SoftmaxActivation(name="scratch_softmax_1"))
+
+    return CNNModel(layers=scratch_layers)
