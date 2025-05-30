@@ -7,6 +7,7 @@ import tensorflow as tf # type: ignore
 from tensorflow.keras.models import load_model # type: ignore
 from sklearn.metrics import f1_score
 
+NUM_CLASSES = 3
 
 from train import (
     run_training_pipeline,
@@ -23,11 +24,6 @@ from rnn import (
     EmbeddingLayerNP,
     d_cross_entropy_softmax_np
 )
-
-MAX_FEATURES = 10000
-SEQUENCE_LENGTH = 100
-EMBEDDING_DIM = 128
-NUM_CLASSES = 3
 
 def load_keras_model_and_vectorizer(model_config_name: str):
     if model_config_name == "best_model":
