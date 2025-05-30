@@ -115,8 +115,8 @@ class LSTM:
             f_t = self.sigmoid(np.dot(x_t, self.W_f) + np.dot(h_t, self.U_f) + self.b_f)
             c_tilde = self.tanh(np.dot(x_t, self.W_c) + np.dot(h_t, self.U_c) + self.b_c)
             
-            if t == 0 and batch_size > 0:
-                print(f"Timestep {t}, Sample 0 - i_t: {i_t[0, :5]}, f_t: {f_t[0, :5]}, c_tilde: {c_tilde[0, :5]}")
+            # if t == 0 and batch_size > 0:
+            #     print(f"Timestep {t}, Sample 0 - i_t: {i_t[0, :5]}, f_t: {f_t[0, :5]}, c_tilde: {c_tilde[0, :5]}")
             
             c_t = f_t * c_t + i_t * c_tilde
             
@@ -253,7 +253,7 @@ class LSTMModel:
                 x = layer.forward(x, training=training)
             else:
                 x = layer.forward(x)
-        print(f"After layer {name}, output shape: {x.shape}, sample values: {x[0, :5] if x.ndim == 2 else x[0, -1, :5] if x.ndim == 3 else x[0, :5]}")
+        # print(f"After layer {name}, output shape: {x.shape}, sample values: {x[0, :5] if x.ndim == 2 else x[0, -1, :5] if x.ndim == 3 else x[0, :5]}")
         return x
     
     def load_weights_from_keras(self, keras_model):
