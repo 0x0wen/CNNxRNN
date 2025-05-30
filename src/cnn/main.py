@@ -2,14 +2,9 @@ import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from sklearn.metrics import f1_score, classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import f1_score, classification_report
 import time
-
-from cnn import CNNModel, Conv2D, ReLU, MaxPooling2D, AveragePooling2D, Flatten, Dense, SoftmaxActivation, create_scratch_cnn_model
+from cnn import create_scratch_cnn_model
 from train import create_keras_cnn_model, load_and_preprocess_cifar10
 
 BEST_MODEL_WEIGHTS_PATH = os.path.join("weights_cnn", "cnn_best_model.weights.h5")
