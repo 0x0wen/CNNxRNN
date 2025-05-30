@@ -4,6 +4,7 @@ import pandas as pd
 from keras._tf_keras.keras.layers import TextVectorization
 from sklearn.metrics import f1_score
 from lstm import batch_predict, LSTMModel, load_and_preprocess_test_data
+import json
 
 def main():
     print("Loading Keras model...")
@@ -44,11 +45,11 @@ def main():
     
     try:
         print("Loading vocabulary data...")
+        vocab_data = np.load('vectorizer_vocabulary.npy', allow_pickle=True)
+        vectorizer.set_vocabulary(vocab_data)
+        print(f"Loaded vocabulary with {len(vocab_data)} tokens")
+    except:
         try:
-            vocab_data = np.load('vectorizer_vocabulary.npy', allow_pickle=True)
-            vectorizer.set_vocabulary(vocab_data)
-            print(f"Loaded vocabulary with {len(vocab_data)} tokens")
-        except:
             if 'vocabulary' in vectorizer_config and vectorizer_config['vocabulary'] is not None:
                 vocab = vectorizer_config['vocabulary']
                 vectorizer.set_vocabulary(vocab)
@@ -59,38 +60,28 @@ def main():
                 X_train = train_df['text'].values
                 vectorizer.adapt(X_train)
                 print(f"Adapted vocabulary with {len(vectorizer.get_vocabulary())} tokens")
-    except Exception as e:
-        print(f"Error setting vocabulary: {e}")
-        return
+        except Exception as e:
+            print(f"Error setting vocabulary: {e}")
+            return
     
     model_config = keras_model.get_config()
-    
-    vocab_size = len(vectorizer.get_vocabulary()) + 2  
+    # print("Model Configuration:")
+    # print(json.dumps(model_config, indent=2))
+    vocab_size = len(vectorizer.get_vocabulary())
+    print(f"Actual vocabulary size: {vocab_size}")
     
     print("Extracting model configuration...")
     
+    embedding_dim = 64
     for layer in model_config['layers']:
         if layer['class_name'] == 'Embedding':
             embedding_dim = layer['config']['output_dim']
             print(f"Found embedding dimension: {embedding_dim}")
             break
-    else:
-        embedding_layer = None
-        for layer in keras_model.layers:
-            if isinstance(layer, tf.keras.layers.Embedding):
-                embedding_layer = layer
-                break
-        
-        if embedding_layer:
-            embedding_dim = embedding_layer.output_dim
-            print(f"Found embedding dimension from layer: {embedding_dim}")
-        else:
-            embedding_dim = 64
-            print(f"WARNING: Could not find embedding dimension, using default value of {embedding_dim}")
     
     lstm_layers = 0
     bidirectional = False
-    lstm_units = 0
+    lstm_units = 128
     
     for layer in model_config['layers']:
         if 'lstm' in layer['class_name'].lower():
@@ -102,26 +93,21 @@ def main():
             bidirectional = True
             if 'layer' in layer['config'] and 'config' in layer['config']['layer']:
                 lstm_units = layer['config']['layer']['config']['units']
-            else:
-                for model_layer in keras_model.layers:
-                    if 'bidirectional' in model_layer.__class__.__name__.lower():
-                        if hasattr(model_layer, 'forward_layer') and hasattr(model_layer.forward_layer, 'units'):
-                            lstm_units = model_layer.forward_layer.units
-                            break
-            print(f"Found Bidirectional LSTM layer with {lstm_units} units")
+                print(f"Found Bidirectional LSTM layer with {lstm_units} units")
     
-    dropout_rate = next((layer['config']['rate'] for layer in model_config['layers'] 
-                         if 'dropout' in layer['class_name'].lower()), 0.2)
-    print(f"Found dropout rate: {dropout_rate}")
+    dropout_rate = 0.2
+    for layer in model_config['layers']:
+        if 'dropout' in layer['class_name'].lower():
+            dropout_rate = layer['config']['rate']
+            print(f"Found dropout rate: {dropout_rate}")
+            break
     
+    num_classes = 3
     for layer in reversed(model_config['layers']):
         if layer['class_name'] == 'Dense':
             num_classes = layer['config']['units']
             print(f"Found output classes: {num_classes}")
             break
-    else:
-        num_classes = keras_model.layers[-1].units
-        print(f"Found output classes from layer: {num_classes}")
     
     print("\nCreating from-scratch model with configuration:")
     print(f"  - Vocabulary size: {vocab_size}")
@@ -135,7 +121,7 @@ def main():
     from_scratch_model = LSTMModel(
         vocab_size=vocab_size,
         embedding_dim=embedding_dim,
-        lstm_units=lstm_units,
+        lstm_units=lstm_units, 
         lstm_layers=lstm_layers,
         bidirectional=bidirectional,
         dropout_rate=dropout_rate,
@@ -148,39 +134,13 @@ def main():
     print("Loading test data...")
     X_test, y_test = load_and_preprocess_test_data('data/test.csv')
     
-    print("\nChecking if we can make direct predictions (without vectorization)...")
-    try:
-        dummy_result = keras_model.predict([X_test[0]])
-        print("Model accepts raw strings! Using direct prediction.")
-        keras_preds = np.argmax(keras_model.predict(X_test), axis=1)
-    except:
-        print("Direct prediction failed. Using vectorizer approach.")
-        
-        print("Creating a new vectorizer to match model expectations...")
-        
-        final_vectorizer = TextVectorization(
-            max_tokens=embedding_input_dim,
-            output_sequence_length=vectorizer_config.get('output_sequence_length', 100),
-            output_mode='int'
-        )
-        
-        try:
-            train_df = pd.read_csv('data/train.csv')
-            X_train = train_df['text'].values
-            final_vectorizer.adapt(X_train)
-            print(f"Adapted new vectorizer with {len(final_vectorizer.get_vocabulary())} tokens")
-        except Exception as e:
-            print(f"Adapting failed: {e}")
-            final_vectorizer.adapt(X_test)
-            print("Adapted vectorizer to test data")
-        
-        print("Making predictions with Keras model using new vectorizer...")
-        X_test_vec = final_vectorizer(X_test).numpy()
-        keras_preds = np.argmax(keras_model.predict(X_test_vec), axis=1)
-        
-        vectorizer = final_vectorizer
+    print("Making predictions...")
     
-    print("Making predictions with from-scratch model...")
+    X_test_vec = vectorizer(X_test).numpy()
+    print(f"Test data shape after vectorization: {X_test_vec.shape}")
+    
+    keras_preds = np.argmax(keras_model.predict(X_test_vec), axis=1)
+    
     from_scratch_preds = np.argmax(batch_predict(from_scratch_model, vectorizer, X_test), axis=1)
     
     keras_f1 = f1_score(y_test, keras_preds, average='macro')
@@ -211,6 +171,17 @@ def main():
             print(f"Keras prediction: {keras_preds[idx]}")
             print(f"From-scratch prediction: {from_scratch_preds[idx]}")
             print()
+    
+    print("\nDebug: Comparing raw prediction probabilities...")
+    keras_raw = keras_model.predict(X_test_vec[:5])
+    scratch_raw = batch_predict(from_scratch_model, vectorizer, X_test[:5])
+    
+    # for i in range(5):
+    #     print(f"Sample {i+1}:")
+    #     print(f"Keras raw:    {keras_raw[i]}")
+    #     print(f"Scratch raw:  {scratch_raw[i]}")
+    #     print(f"Difference:   {np.abs(keras_raw[i] - scratch_raw[i])}")
+    #     print()
 
 if __name__ == "__main__":
     main()
