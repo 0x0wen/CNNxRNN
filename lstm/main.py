@@ -4,7 +4,6 @@ import pandas as pd
 from keras._tf_keras.keras.layers import TextVectorization
 from sklearn.metrics import f1_score
 from lstm import batch_predict, LSTMModel, load_and_preprocess_test_data
-import json
 
 def main():
     print("Loading Keras model...")
