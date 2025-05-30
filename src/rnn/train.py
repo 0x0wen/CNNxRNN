@@ -14,9 +14,9 @@ from sklearn.preprocessing import LabelEncoder
 from typing import List, Tuple, Dict, Any, Optional
 import shutil
 
-MAX_FEATURES = 10000
-SEQUENCE_LENGTH = 100
-EMBEDDING_DIM = 128
+MAX_FEATURES = 20000 
+SEQUENCE_LENGTH = 120 
+EMBEDDING_DIM = 256
 NUM_CLASSES = 3
 RNN_TYPE = "SimpleRNN"
 
@@ -149,7 +149,7 @@ def train_and_evaluate_model(
         ),
         EarlyStopping(
             monitor='val_loss',
-            patience=15,
+            patience=5,
             verbose=1,
             restore_best_weights=True
         )
@@ -173,12 +173,12 @@ def train_and_evaluate_model(
         verbose=2
     )
     
-    plot_loss_curves(history_object.history, model_config_name)
+    plot_metrics_curves(history_object.history, model_config_name)
     
     loaded_model_for_this_config = model
     if os.path.exists(model_save_path):
         print(f"Loading best version of {model.name} from {model_save_path} for final evaluation.")
-        loaded_model_for_this_config = tf.keras.models.load_model(model_save_path, compile=False) 
+        loaded_model_for_this_config = tf.keras.models.load_model(model_save_path, compile=False)
         loaded_model_for_this_config.compile(optimizer=Adam(), loss=SparseCategoricalCrossentropy(), metrics=['accuracy'])
     else:
         print(f"Warning: Best model file {model_save_path} not found. Using model state at end of training for evaluation of {model.name}.")
@@ -203,29 +203,74 @@ def train_and_evaluate_model(
     
     return history_object.history, macro_f1
 
-def plot_loss_curves(history_dict: Dict[str, Any], plot_config_name: str):
+def plot_metrics_curves(history_dict: Dict[str, Any], plot_config_name: str, display_duration: int = 0.1):
     loss = history_dict.get('loss', [])
     val_loss = history_dict.get('val_loss', [])
+    accuracy = history_dict.get('accuracy', [])
+    val_accuracy = history_dict.get('val_accuracy', [])
     
-    if not loss or not val_loss:
-        print(f"Warning: Loss or val_loss not found in history for {plot_config_name}. Skipping plot.")
-        return
+    if loss and accuracy:
+        print(f"Final Training Loss: {loss[-1]:.4f}")
+        print(f"Final Training Accuracy: {accuracy[-1]:.4f}")
+    if val_loss and val_accuracy:
+        print(f"Final Validation Loss: {val_loss[-1]:.4f}")
+        print(f"Final Validation Accuracy: {val_accuracy[-1]:.4f}")
 
-    epochs_range = range(1, len(loss) + 1)
+    if not loss or not val_loss:
+        print(f"Warning: Loss or val_loss not found in history for {plot_config_name}. Skipping loss plot.")
+    if not accuracy or not val_accuracy:
+        print(f"Warning: Accuracy or val_accuracy not found in history for {plot_config_name}. Skipping accuracy plot.")
+
+    epochs_range_loss = range(len(loss)) if loss else []
+    epochs_range_accuracy = range(len(accuracy)) if accuracy else []
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    if loss and val_loss:
+        ax1.plot(epochs_range_loss, loss, color='#1f77b4', linewidth=2, label='Training Loss')
+        ax1.plot(epochs_range_loss, val_loss, color='#ff7f0e', linewidth=2, label='Validation Loss')
+        ax1.set_title('Loss', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Loss')
+        ax1.legend()
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+    else:
+        ax1.text(0.5, 0.5, 'Loss data not available', 
+                horizontalalignment='center', verticalalignment='center', 
+                transform=ax1.transAxes)
+
+    if accuracy and val_accuracy:
+        ax2.plot(epochs_range_accuracy, accuracy, color='#1f77b4', linewidth=2, label='Training Accuracy')
+        ax2.plot(epochs_range_accuracy, val_accuracy, color='#ff7f0e', linewidth=2, label='Validation Accuracy')
+        ax2.set_title('Accuracy', fontsize=14, fontweight='bold')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Accuracy')
+        ax2.legend()
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+    else:
+        ax2.text(0.5, 0.5, 'Accuracy data not available', 
+                horizontalalignment='center', verticalalignment='center', 
+                transform=ax2.transAxes)
+
+    plt.tight_layout()
+
+    plot_save_path = os.path.join(PLOT_DIR, f"metrics_curves_{plot_config_name}.png")
+    plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+    print(f"Metrics curves (Loss and Accuracy) saved to {plot_save_path}")
+
     
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs_range, loss, 'bo-', label='Training Loss')
-    plt.plot(epochs_range, val_loss, 'ro--', label='Validation Loss')
-    plt.title(f'Training and Validation Loss ({plot_config_name})')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss (SparseCategoricalCrossentropy)')
-    plt.legend()
-    plt.grid(True)
     
-    plot_save_path = os.path.join(PLOT_DIR, f"loss_curve_{plot_config_name}.png")
-    plt.savefig(plot_save_path)
-    print(f"Loss curve saved to {plot_save_path}")
-    plt.close()
+    if display_duration > 0:
+        plt.show(block=False)
+        print(f"Displaying plot for {display_duration} seconds...")
+        plt.pause(display_duration)
+        plt.close(fig)
+        print("Plot closed.")
+    else:
+        plt.close(fig)
+
 
 def load_and_preprocess_data_for_testing(
     for_scratch_test: bool = False,
@@ -335,7 +380,7 @@ def run_training_pipeline():
                     valid_data=valid_dataset,
                     test_texts=test_texts_raw,
                     test_labels=test_labels_raw,
-                    epochs=100,
+                    epochs=20,
                     batch_size=32,
                     model_config_name=current_config_name 
                 )
@@ -348,7 +393,9 @@ def run_training_pipeline():
                     "rnn_type": RNN_TYPE,
                     "macro_f1_score": macro_f1_score,
                     "training_loss": history_dict.get('loss', []),
-                    "validation_loss": history_dict.get('val_loss', [])
+                    "validation_loss": history_dict.get('val_loss', []),
+                    "training_accuracy": history_dict.get('accuracy', []),
+                    "validation_accuracy": history_dict.get('val_accuracy', [])
                 }
                 all_results.append(result_entry)
 
@@ -362,7 +409,7 @@ def run_training_pipeline():
                         "rnn_type": RNN_TYPE
                     }
                     
-                    individual_model_path = os.path.join(MODEL_DIR, f"model_{current_config_name}.keras")
+                    individual_model_path = os.path.join(MODEL_DIR, f"{model.name}.keras")
                     if os.path.exists(individual_model_path):
                         shutil.copyfile(individual_model_path, best_overall_model_path)
                         print(f"New best overall model '{individual_model_path}' copied to '{best_overall_model_path}' (Macro F1: {macro_f1_score:.4f})")
@@ -394,24 +441,24 @@ def run_training_pipeline():
     print(f"Best overall model config saved to: {os.path.join(MODEL_DIR, 'best_model_config.json')}")
 
 
-    print("\n--- Saving Best Hyperparameter Plots (Loss Curves) ---")
+    print("\n--- Saving Best Hyperparameter Plots (Metrics Curves) ---")
     for n_layers, (f1, conf_name, hist_dict) in best_by_layers.items():
         if f1 > -1.0:
             plot_name = f"Best_{n_layers}_layer_f1"
-            plot_loss_curves(hist_dict, plot_name)
-            print(f"Saved plot for best {n_layers} layer(s) (config: {conf_name}, F1: {f1:.4f}) as loss_curve_{plot_name}.png")
+            plot_metrics_curves(hist_dict, plot_name)
+            print(f"Saved metrics plot for best {n_layers} layer(s) (config: {conf_name}, F1: {f1:.4f}) as metrics_curves_{plot_name}.png")
 
     for units_val, (f1, conf_name, hist_dict) in best_by_units.items():
         if f1 > -1.0:
             plot_name = f"Best_{units_val}_units_f1"
-            plot_loss_curves(hist_dict, plot_name)
-            print(f"Saved plot for best {units_val} units (config: {conf_name}, F1: {f1:.4f}) as loss_curve_{plot_name}.png")
+            plot_metrics_curves(hist_dict, plot_name)
+            print(f"Saved metrics plot for best {units_val} units (config: {conf_name}, F1: {f1:.4f}) as metrics_curves_{plot_name}.png")
 
     for direction_val, (f1, conf_name, hist_dict) in best_by_direction.items():
         if f1 > -1.0:
             plot_name = f"Best_{direction_val}_f1"
-            plot_loss_curves(hist_dict, plot_name)
-            print(f"Saved plot for best {direction_val} RNN (config: {conf_name}, F1: {f1:.4f}) as loss_curve_{plot_name}.png")
+            plot_metrics_curves(hist_dict, plot_name)
+            print(f"Saved metrics plot for best {direction_val} RNN (config: {conf_name}, F1: {f1:.4f}) as metrics_curves_{plot_name}.png")
 
     results_summary_save_path = os.path.join(PLOT_DIR, "hyperparameter_sweep_summary.json")
     with open(results_summary_save_path, 'w') as f:
