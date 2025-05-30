@@ -35,6 +35,26 @@ This project focuses on the implementation and analysis of **Convolutional Neura
     uv run main.py
     ```
 
+## Running SimpleRNN
+
+1. Training the Model
+    ```bash
+    uv run python main.py --train
+    ```
+2. Testing the From-Scratch Implementation
+    ```bash
+    uv run python main.py --test-scratch MODEL_NAME_OR_CONFIG
+    ```
+3. Testing the From-Scratch Implementation With Batch Size
+    ```bash
+    uv run python main.py --test-scratch MODEL_NAME_OR_CONFIG --inference-batch-size BATCH_SIZE
+    ```
+4. Testing the From-Scratch Implementation With Backward
+    ```bash
+    uv run python main.py --test-scratch MODEL_NAME_OR_CONFIG --demo-backward
+    ```
+
+
 ## 🧠 Implemented Tasks
 
 ### ✅ CNN (CIFAR-10)
